@@ -18,14 +18,15 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y coreutils quilt parted qemu-user-static qemu-user-binfmt \
-            binfmt-support debootstrap zerofree zip dosfstools e2fsprogs libarchive-tools \
+          sudo apt-get install -y coreutils quilt parted qemu-user-static \
+            debootstrap zerofree zip dosfstools e2fsprogs libarchive-tools \
             libcap2-bin grep rsync xz-utils file git curl bc gpg pigz xxd arch-test bmap-tools kmod
 
       - name: Setup QEMU binfmt
         run: |
           sudo modprobe binfmt_misc || true
-          sudo update-binfmts --enable qemu-aarch64 || true
+          sudo ln -sf /usr/bin/qemu-aarch64-static /usr/bin/qemu-arm
+          sudo ln -sf /usr/bin/qemu-aarch64-static /usr/bin/qemu-aarch64
 
       - name: Set VERSION environment variable
         run: |
