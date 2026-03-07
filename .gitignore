@@ -7,3 +7,4 @@ postrun.sh
 *-pc
 
 .vscode/
+stage2/05-reachy-mini/files/gst-plugins-rs-rpi.tar.gz

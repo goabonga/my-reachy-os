@@ -12,8 +12,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-            lfs: true
 
       - name: Install dependencies
         run: |
@@ -27,6 +25,13 @@ jobs:
           sudo modprobe binfmt_misc || true
           sudo ln -sf /usr/bin/qemu-aarch64-static /usr/bin/qemu-arm
           sudo ln -sf /usr/bin/qemu-aarch64-static /usr/bin/qemu-aarch64
+
+      - name: Download gst-plugins-rs-rpi
+        run: |
+          gh release download --repo goabonga/gst-plugins-rs-rpi --pattern 'gst-plugins-rs-rpi.tar.gz' \
+            --dir stage2/05-reachy-mini/files/
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Set VERSION environment variable
         run: |
