@@ -36,10 +36,11 @@ jobs:
       - name: Set VERSION environment variable
         run: |
           if [ "${{ github.ref_type }}" = "tag" ]; then
-            echo "VERSION=${{ github.ref_name }}" >> $GITHUB_ENV
+            RAW_VERSION="${{ github.ref_name }}"
           else
-            echo "VERSION=${{ github.ref_name }}-$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_ENV
+            RAW_VERSION="${{ github.ref_name }}-$(echo ${{ github.sha }} | cut -c1-7)"
           fi
+          echo "VERSION=${RAW_VERSION//\//-}" >> $GITHUB_ENV
 
       - name: Update stage2/05-reachy-mini/00-run.sh with version
         run: |
