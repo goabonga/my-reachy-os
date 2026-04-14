@@ -14,8 +14,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-            lfs: true
 
       - name: Install dependencies
         run: |
@@ -30,13 +28,21 @@ jobs:
           sudo ln -sf /usr/bin/qemu-aarch64-static /usr/bin/qemu-arm
           sudo ln -sf /usr/bin/qemu-aarch64-static /usr/bin/qemu-aarch64
 
+      - name: Download gst-plugins-rs-rpi
+        run: |
+          gh release download --repo goabonga/gst-plugins-rs-rpi --pattern 'gst-plugins-rs-rpi.tar.gz' \
+            --dir stage2/05-reachy-mini/files/
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - name: Set VERSION environment variable
         run: |
           if [ "${{ github.ref_type }}" = "tag" ]; then
-            echo "VERSION=${{ github.ref_name }}" >> $GITHUB_ENV
+            RAW_VERSION="${{ github.ref_name }}"
           else
-            echo "VERSION=${{ github.ref_name }}-$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_ENV
+            RAW_VERSION="${{ github.ref_name }}-$(echo ${{ github.sha }} | cut -c1-7)"
           fi
+          echo "VERSION=${RAW_VERSION//\//-}" >> $GITHUB_ENV
 
       - name: Update stage2/05-reachy-mini/00-run.sh with version
         run: |
