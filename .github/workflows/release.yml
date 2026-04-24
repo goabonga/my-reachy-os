@@ -136,7 +136,14 @@ jobs:
       - name: 📥 Download gst-plugins-rs-rpi
         if: steps.bump.outputs.version != ''
         run: |
-          gh release download --repo goabonga/gst-plugins-rs-rpi \
+          # shellcheck disable=SC1091
+          source ./config
+          if [ -z "${GST_PLUGINS_RS_RPI_VERSION}" ]; then
+            echo "GST_PLUGINS_RS_RPI_VERSION is not set in ./config"
+            exit 1
+          fi
+          gh release download "${GST_PLUGINS_RS_RPI_VERSION}" \
+            --repo goabonga/gst-plugins-rs-rpi \
             --pattern 'gst-plugins-rs-rpi.tar.gz' \
             --dir stage2/05-reachy-mini/files/
         env:
