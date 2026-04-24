@@ -18,7 +18,32 @@ In summary, the modified files are:
 - `stage2/01-sys-tweaks/00-packages-nr`: apt packages
 - `stage2/05-reachy-mini/*`: Python environment and daemon installation
 
-A release can be easily created by pushing a tag 'vx.x.x'. Any other tag will build an image with the artifacts available in the Actions section.
+### Conventional Commits
+
+This project uses [Conventional Commits](https://www.conventionalcommits.org/) for commit messages:
+
+```bash
+# Interactive commit
+cz commit
+
+# Or use git with conventional format
+git commit -m "feat: add new feature"
+git commit -m "fix: resolve bug"
+```
+
+Commit types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`.
+
+### Release
+
+Releases are triggered by commits with the `chore(release):` prefix on `main` branch:
+
+```bash
+# Standard release (version bumped automatically based on conventional commits)
+git commit --allow-empty -m "chore(release): release a new version"
+
+# Stable release (bumps major version, e.g. 0.x.x → 1.0.0)
+git commit --allow-empty -m "chore(release): release a stable version"
+```
 
 The branch arm64 is used for sync with the main repo. Please fork and merge to develop to contribute to this repo.
 
