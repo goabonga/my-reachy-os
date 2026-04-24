@@ -1,0 +1,211 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris <goabonga@pm.me>
+
+name: Main Branch Release
+
+on:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: write
+
+env:
+  GH_USERNAME: ${{ github.event.head_commit.author.name }}
+  GH_EMAIL: ${{ github.event.head_commit.author.email }}
+  GH_REPO_URL: https://x-access-token:${{ secrets.GH_TOKEN }}@github.com/${{ github.repository }}.git
+  PYTHON_DEFAULT_VERSION: "3.11"
+
+jobs:
+
+  # ============================================
+  # Check if this is a release commit
+  # ============================================
+  check-release-commit:
+    name: Check Release Commit
+    runs-on: ubuntu-latest
+    outputs:
+      is_release: ${{ steps.check.outputs.is_release }}
+      is_stable: ${{ steps.check.outputs.is_stable }}
+    steps:
+      - name: 🔍 Check commit message
+        id: check
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          if [[ "$COMMIT_MSG" =~ ^chore\(release\): ]]; then
+            echo "is_release=true" >> $GITHUB_OUTPUT
+            if [[ "$COMMIT_MSG" =~ stable ]]; then
+              echo "is_stable=true" >> $GITHUB_OUTPUT
+              echo "Stable release detected: will bump major version"
+            else
+              echo "is_stable=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "is_release=false" >> $GITHUB_OUTPUT
+            echo "is_stable=false" >> $GITHUB_OUTPUT
+            echo "Skipping: commit does not match 'chore(release): ...'"
+          fi
+
+  # ============================================
+  # Bump version and build ReachyMini OS image
+  # ============================================
+  bump_and_build:
+    name: Bump version and build image
+    runs-on: ubuntu-latest
+    needs: [check-release-commit]
+    if: needs.check-release-commit.outputs.is_release == 'true'
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+    steps:
+      - name: ⬇️ Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: 🔑 Import GPG key
+        run: |
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+
+      - name: 🔓 Unlock GPG key
+        run: |
+          echo "test" | gpg --batch --yes --passphrase "$GPG_PASSPHRASE" --pinentry-mode loopback -s >/dev/null
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+
+      - name: 🔧 Configure Git user
+        run: |
+          git config --global user.name "${{ env.GH_USERNAME }}"
+          git config --global user.email "${{ env.GH_EMAIL }}"
+          git config --global user.signingkey "$(gpg --list-secret-keys --keyid-format=LONG | grep sec | awk '{print $2}' | cut -d/ -f2)"
+          git config --global commit.gpgsign true
+          git config --global tag.gpgSign true
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_DEFAULT_VERSION }}
+
+      - name: 🛠️ Install Commitizen
+        run: pip install commitizen
+
+      - name: 🔍 Check for releasable commits
+        id: check
+        run: |
+          if cz bump --dry-run 2>&1 | grep -q "No commits found"; then
+            echo "has_commits=false" >> $GITHUB_OUTPUT
+          else
+            echo "has_commits=true" >> $GITHUB_OUTPUT
+          fi
+        continue-on-error: true
+
+      - name: 🚀 Bump version with Commitizen
+        if: steps.check.outputs.has_commits == 'true'
+        id: bump
+        run: |
+          IS_STABLE="${{ needs.check-release-commit.outputs.is_stable }}"
+          if [ "$IS_STABLE" = "true" ]; then
+            echo "Stable release: bumping major version"
+            cz bump --increment MAJOR --yes --changelog
+          else
+            cz bump --yes --changelog
+          fi
+          echo "version=$(cat VERSION | tr -d '[:space:]')" >> $GITHUB_OUTPUT
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+        continue-on-error: true
+
+      - name: 📥 Install pi-gen dependencies
+        if: steps.bump.outputs.version != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y coreutils quilt parted qemu-user-static \
+            debootstrap zerofree zip dosfstools e2fsprogs libarchive-tools \
+            libcap2-bin grep rsync xz-utils file git curl bc gpg pigz xxd arch-test bmap-tools kmod
+
+      - name: 🧩 Setup QEMU binfmt
+        if: steps.bump.outputs.version != ''
+        run: |
+          sudo modprobe binfmt_misc || true
+          sudo ln -sf /usr/bin/qemu-aarch64-static /usr/bin/qemu-arm
+          sudo ln -sf /usr/bin/qemu-aarch64-static /usr/bin/qemu-aarch64
+
+      - name: 📥 Download gst-plugins-rs-rpi
+        if: steps.bump.outputs.version != ''
+        run: |
+          gh release download --repo goabonga/gst-plugins-rs-rpi \
+            --pattern 'gst-plugins-rs-rpi.tar.gz' \
+            --dir stage2/05-reachy-mini/files/
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: 🏷️ Inject version into stage script
+        if: steps.bump.outputs.version != ''
+        run: |
+          sed -i "s|ReachyMiniOS: dev|ReachyMiniOS: v${{ steps.bump.outputs.version }}|g" \
+            stage2/05-reachy-mini/00-run.sh
+
+      - name: 🧱 Build ReachyMini OS image
+        if: steps.bump.outputs.version != ''
+        run: |
+          chmod +x build.sh
+          sudo ./build.sh
+
+      - name: 🏷️ Rename deploy files with version
+        if: steps.bump.outputs.version != ''
+        run: |
+          for f in deploy/*.*; do
+            ext="${f##*.}"
+            base="${f%.*}"
+            sudo mv "$f" "${base}-v${{ steps.bump.outputs.version }}.${ext}"
+          done
+
+      - name: ✂️ Extract latest changelog section
+        if: steps.bump.outputs.version != ''
+        run: |
+          awk '/^## /{i++} i==1' CHANGELOG.md > LATEST_CHANGELOG.md
+
+      - name: 📤 Push version bump and tag
+        if: steps.bump.outputs.version != ''
+        run: |
+          git remote set-url origin ${{ env.GH_REPO_URL }}
+          git push origin HEAD
+          git push origin --tags
+
+      - name: 📤 Upload build artifacts
+        if: steps.bump.outputs.version != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-files
+          path: |
+            deploy/*
+            LATEST_CHANGELOG.md
+
+  # ============================================
+  # Create GitHub Release
+  # ============================================
+  github_release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: bump_and_build
+    if: needs.bump_and_build.outputs.version != ''
+    steps:
+      - name: 📥 Download build artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: release-files
+          path: .
+
+      - name: 🚀 Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.bump_and_build.outputs.version }}
+          name: Release v${{ needs.bump_and_build.outputs.version }}
+          body_path: LATEST_CHANGELOG.md
+          files: |
+            deploy/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
